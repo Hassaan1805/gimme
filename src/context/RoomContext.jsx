@@ -1,0 +1,262 @@
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { io } from 'socket.io-client';
+
+const RoomContext = createContext(null);
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+export function RoomProvider({ children }) {
+  const [roomPin, setRoomPin] = useState(null);
+  const [role, setRole] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [texts, setTexts] = useState([]);
+  const [socket, setSocket] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [toasts, setToasts] = useState([]);
+
+  // Initialize socket connection
+  useEffect(() => {
+    const newSocket = io(API_URL);
+    setSocket(newSocket);
+    return () => newSocket.close();
+  }, []);
+
+  // Join/leave room on socket
+  useEffect(() => {
+    if (socket && roomPin) {
+      socket.emit('joinRoom', roomPin);
+      return () => socket.emit('leaveRoom', roomPin);
+    }
+  }, [socket, roomPin]);
+
+  // Listen for real-time updates
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('filesUpdated', (newFiles) => {
+      setFiles(newFiles);
+      addToast('New file uploaded!', 'success');
+    });
+
+    socket.on('textsUpdated', (newTexts) => {
+      setTexts(newTexts);
+    });
+
+    return () => {
+      socket.off('filesUpdated');
+      socket.off('textsUpdated');
+    };
+  }, [socket]);
+
+  // Add toast notification
+  const addToast = useCallback((message, type = 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000);
+  }, []);
+
+  // Check if room exists
+  const checkRoom = async (pin) => {
+    try {
+      const res = await fetch(`${API_URL}/api/rooms/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
+      });
+      const data = await res.json();
+      return data.exists;
+    } catch (error) {
+      console.error('Error checking room:', error);
+      return false;
+    }
+  };
+
+  // Create room
+  const createRoom = async (pin) => {
+    try {
+      const res = await fetch(`${API_URL}/api/rooms/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRoomPin(pin);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error creating room:', error);
+      return false;
+    }
+  };
+
+  // Join room
+  const joinRoom = (pin) => {
+    setRoomPin(pin);
+  };
+
+  // Load room content
+  const loadRoomContent = async () => {
+    if (!roomPin) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/files/${roomPin}`);
+      const data = await res.json();
+      setFiles(data.files || []);
+      setTexts(data.texts || []);
+    } catch (error) {
+      console.error('Error loading room content:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Upload files
+  const uploadFiles = async (fileList) => {
+    if (!roomPin || role !== 'uploader') return false;
+    
+    const formData = new FormData();
+    for (const file of fileList) {
+      formData.append('files', file);
+    }
+    
+    try {
+      const res = await fetch(`${API_URL}/api/files/${roomPin}/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFiles(prev => [...prev, ...data.files]);
+        addToast('Files uploaded successfully!', 'success');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error uploading files:', error);
+      addToast('Upload failed', 'error');
+      return false;
+    }
+  };
+
+  // Upload text
+  const uploadText = async (content) => {
+    if (!roomPin || role !== 'uploader' || !content.trim()) return false;
+    
+    try {
+      const res = await fetch(`${API_URL}/api/files/${roomPin}/text`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTexts(prev => [...prev, data.text]);
+        addToast('Text added!', 'success');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error uploading text:', error);
+      return false;
+    }
+  };
+
+  // Delete file
+  const deleteFile = async (fileId) => {
+    if (!roomPin || role !== 'uploader') return false;
+    
+    try {
+      const res = await fetch(`${API_URL}/api/files/${roomPin}/${fileId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFiles(prev => prev.filter(f => f.id !== fileId));
+        addToast('File deleted', 'success');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      return false;
+    }
+  };
+
+  // Delete text
+  const deleteText = async (textId) => {
+    if (!roomPin || role !== 'uploader') return false;
+    
+    try {
+      const res = await fetch(`${API_URL}/api/texts/${roomPin}/${textId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTexts(prev => prev.filter(t => t.id !== textId));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error deleting text:', error);
+      return false;
+    }
+  };
+
+  // Get file preview URL
+  const getFilePreviewUrl = (fileId) => {
+    return `${API_URL}/api/files/${roomPin}/${fileId}/preview`;
+  };
+
+  // Get file download URL
+  const getFileDownloadUrl = (fileId) => {
+    return `${API_URL}/api/files/${roomPin}/${fileId}/download`;
+  };
+
+  // Leave room
+  const leaveRoom = () => {
+    setRoomPin(null);
+    setRole(null);
+    setFiles([]);
+    setTexts([]);
+  };
+
+  const value = {
+    roomPin,
+    role,
+    files,
+    texts,
+    loading,
+    toasts,
+    setRole,
+    checkRoom,
+    createRoom,
+    joinRoom,
+    loadRoomContent,
+    uploadFiles,
+    uploadText,
+    deleteFile,
+    deleteText,
+    getFilePreviewUrl,
+    getFileDownloadUrl,
+    leaveRoom,
+    addToast
+  };
+
+  return (
+    <RoomContext.Provider value={value}>
+      {children}
+    </RoomContext.Provider>
+  );
+}
+
+export function useRoom() {
+  const context = useContext(RoomContext);
+  if (!context) {
+    throw new Error('useRoom must be used within a RoomProvider');
+  }
+  return context;
+}
