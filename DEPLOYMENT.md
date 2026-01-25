@@ -106,36 +106,49 @@ CREATE POLICY "Allow all on texts" ON texts FOR ALL USING (true) WITH CHECK (tru
 
 ---
 
-## Step 5: Update Your Code
+## Step 5: Deploy Backend
 
-Once you have your Supabase URL and key, tell me and I'll update the backend code to use Supabase!
+You can choose either **Railway** (recommended) or **Render**. Both have free tiers and are easy to set up.
 
----
-
-## Step 6: Deploy Backend (Railway)
-
+### Option A: Railway (Recommended)
 1. Push your code to GitHub
 2. Go to [railway.app](https://railway.app) → Sign in with GitHub
 3. **"New Project"** → **"Deploy from GitHub repo"**
-4. Select your gimme repo, choose the `backend` folder
-5. Go to **Variables** tab and add:
+4. Select your gimme repo
+5. Choose the usage folder: `backend` (Railway asks for "Root Directory")
+6. Go to **Variables** tab and add:
    - `SUPABASE_URL` = your project URL
    - `SUPABASE_KEY` = your anon key
-   - `CORS_ORIGIN` = your frontend URL (add after deploying frontend)
-6. Railway will auto-deploy and give you a URL like `gimme-backend.up.railway.app`
+   - `CORS_ORIGIN` = your frontend URL (add after deploying frontend, or use `*` temporarily)
+7. Railway will auto-deploy and give you a URL like `gimme-backend.up.railway.app`
+
+### Option B: Render (Alternative)
+1. Go to [render.com](https://render.com) → Sign in with GitHub
+2. Click **"New"** → **"Web Service"**
+3. Connect your gimme repo
+4. Configure:
+   - **Root Directory:** `backend`
+   - **Build Command:** `npm install`
+   - **Start Command:** `node server.js`
+   - **Instance Type:** Free
+5. Scroll down to **"Advanced"** → **"Add Environment Variable"**:
+   - `SUPABASE_URL` = your project URL
+   - `SUPABASE_KEY` = your anon key
+   - `CORS_ORIGIN` = your frontend URL
+6. Click **"Create Web Service"**
 
 ---
 
-## Step 7: Deploy Frontend (Vercel)
+## Step 6: Deploy Frontend (Vercel)
 
 1. Go to [vercel.com](https://vercel.com) → Sign in with GitHub
 2. **"Add New"** → **"Project"**
 3. Import your gimme repo
 4. Set **Root Directory** to `.` (root, not backend)
 5. Add **Environment Variable:**
-   - `VITE_API_URL` = your Railway backend URL
+   - `VITE_API_URL` = your Backend URL (from Step 5)
 6. Click **"Deploy"**
-7. Copy your Vercel URL and add it to Railway's `CORS_ORIGIN` variable
+7. Copy your Vercel URL and add it to your Backend's `CORS_ORIGIN` variable
 
 ---
 
@@ -143,6 +156,5 @@ Once you have your Supabase URL and key, tell me and I'll update the backend cod
 
 Your app is now deployed:
 - **Frontend:** `https://gimme.vercel.app` (or similar)
-- **Backend:** `https://gimme-backend.up.railway.app`
+- **Backend:** `https://gimme-backend.up.railway.app` OR `https://gimme.onrender.com`
 - **Database + Storage:** Supabase
-

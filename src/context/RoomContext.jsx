@@ -24,8 +24,8 @@ export function RoomProvider({ children }) {
   // Join/leave room on socket
   useEffect(() => {
     if (socket && roomPin) {
-      socket.emit('joinRoom', roomPin);
-      return () => socket.emit('leaveRoom', roomPin);
+      socket.emit('join-room', roomPin);
+      return () => socket.emit('leave-room', roomPin);
     }
   }, [socket, roomPin]);
 
@@ -33,20 +33,31 @@ export function RoomProvider({ children }) {
   useEffect(() => {
     if (!socket) return;
 
-    socket.on('filesUpdated', (newFiles) => {
-      setFiles(newFiles);
+    socket.on('file-added', (file) => {
+      setFiles(prev => [...prev, file]);
       addToast('New file uploaded!', 'success');
     });
 
-    socket.on('textsUpdated', (newTexts) => {
-      setTexts(newTexts);
+    socket.on('file-deleted', (fileId) => {
+      setFiles(prev => prev.filter(f => f.id !== fileId));
+    });
+
+    socket.on('text-added', (text) => {
+      setTexts(prev => [...prev, text]);
+      addToast('New text added!', 'success');
+    });
+
+    socket.on('text-deleted', (textId) => {
+      setTexts(prev => prev.filter(t => t.id !== textId));
     });
 
     return () => {
-      socket.off('filesUpdated');
-      socket.off('textsUpdated');
+      socket.off('file-added');
+      socket.off('file-deleted');
+      socket.off('text-added');
+      socket.off('text-deleted');
     };
-  }, [socket]);
+  }, [socket, addToast]);
 
   // Add toast notification
   const addToast = useCallback((message, type = 'info') => {
@@ -60,11 +71,7 @@ export function RoomProvider({ children }) {
   // Check if room exists
   const checkRoom = async (pin) => {
     try {
-      const res = await fetch(`${API_URL}/api/rooms/check`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin })
-      });
+      const res = await fetch(`${API_URL}/api/rooms/${pin}`);
       const data = await res.json();
       return data.exists;
     } catch (error) {
@@ -76,7 +83,7 @@ export function RoomProvider({ children }) {
   // Create room
   const createRoom = async (pin) => {
     try {
-      const res = await fetch(`${API_URL}/api/rooms/create`, {
+      const res = await fetch(`${API_URL}/api/rooms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin })
@@ -86,9 +93,11 @@ export function RoomProvider({ children }) {
         setRoomPin(pin);
         return true;
       }
+      addToast(data.error || 'Failed to create room', 'error');
       return false;
     } catch (error) {
       console.error('Error creating room:', error);
+      addToast('Failed to create room', 'error');
       return false;
     }
   };
@@ -103,12 +112,13 @@ export function RoomProvider({ children }) {
     if (!roomPin) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/files/${roomPin}`);
+      const res = await fetch(`${API_URL}/api/rooms/${roomPin}/contents`);
       const data = await res.json();
       setFiles(data.files || []);
       setTexts(data.texts || []);
     } catch (error) {
       console.error('Error loading room content:', error);
+      addToast('Failed to load room content', 'error');
     } finally {
       setLoading(false);
     }
@@ -118,20 +128,24 @@ export function RoomProvider({ children }) {
   const uploadFiles = async (fileList) => {
     if (!roomPin || role !== 'uploader') return false;
     
-    const formData = new FormData();
-    for (const file of fileList) {
-      formData.append('files', file);
-    }
-    
     try {
-      const res = await fetch(`${API_URL}/api/files/${roomPin}/upload`, {
-        method: 'POST',
-        body: formData
+      // Upload files one by one since backend expects single file
+      const uploadPromises = Array.from(fileList).map(async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const res = await fetch(`${API_URL}/api/rooms/${roomPin}/files`, {
+          method: 'POST',
+          body: formData
+        });
+        return res.json();
       });
-      const data = await res.json();
-      if (data.success) {
-        setFiles(prev => [...prev, ...data.files]);
-        addToast('Files uploaded successfully!', 'success');
+      
+      const results = await Promise.all(uploadPromises);
+      const uploadedFiles = results.filter(r => r.id); // Filter successful uploads
+      
+      if (uploadedFiles.length > 0) {
+        addToast(`${uploadedFiles.length} file(s) uploaded successfully!`, 'success');
         return true;
       }
       return false;
@@ -147,20 +161,20 @@ export function RoomProvider({ children }) {
     if (!roomPin || role !== 'uploader' || !content.trim()) return false;
     
     try {
-      const res = await fetch(`${API_URL}/api/files/${roomPin}/text`, {
+      const res = await fetch(`${API_URL}/api/rooms/${roomPin}/texts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content })
       });
       const data = await res.json();
-      if (data.success) {
-        setTexts(prev => [...prev, data.text]);
+      if (data.id) {
         addToast('Text added!', 'success');
         return true;
       }
       return false;
     } catch (error) {
       console.error('Error uploading text:', error);
+      addToast('Failed to add text', 'error');
       return false;
     }
   };
@@ -170,18 +184,18 @@ export function RoomProvider({ children }) {
     if (!roomPin || role !== 'uploader') return false;
     
     try {
-      const res = await fetch(`${API_URL}/api/files/${roomPin}/${fileId}`, {
+      const res = await fetch(`${API_URL}/api/files/${fileId}`, {
         method: 'DELETE'
       });
       const data = await res.json();
       if (data.success) {
-        setFiles(prev => prev.filter(f => f.id !== fileId));
         addToast('File deleted', 'success');
         return true;
       }
       return false;
     } catch (error) {
       console.error('Error deleting file:', error);
+      addToast('Failed to delete file', 'error');
       return false;
     }
   };
@@ -191,29 +205,29 @@ export function RoomProvider({ children }) {
     if (!roomPin || role !== 'uploader') return false;
     
     try {
-      const res = await fetch(`${API_URL}/api/texts/${roomPin}/${textId}`, {
+      const res = await fetch(`${API_URL}/api/texts/${textId}`, {
         method: 'DELETE'
       });
       const data = await res.json();
       if (data.success) {
-        setTexts(prev => prev.filter(t => t.id !== textId));
         return true;
       }
       return false;
     } catch (error) {
       console.error('Error deleting text:', error);
+      addToast('Failed to delete text', 'error');
       return false;
     }
   };
 
   // Get file preview URL
   const getFilePreviewUrl = (fileId) => {
-    return `${API_URL}/api/files/${roomPin}/${fileId}/preview`;
+    return `${API_URL}/api/files/${fileId}`;
   };
 
   // Get file download URL
   const getFileDownloadUrl = (fileId) => {
-    return `${API_URL}/api/files/${roomPin}/${fileId}/download`;
+    return `${API_URL}/api/files/${fileId}/download`;
   };
 
   // Leave room
