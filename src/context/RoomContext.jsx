@@ -14,6 +14,15 @@ export function RoomProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [toasts, setToasts] = useState([]);
 
+  // Add toast notification (defined first so it can be used in effects)
+  const addToast = useCallback((message, type = 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000);
+  }, []);
+
   // Initialize socket connection
   useEffect(() => {
     const newSocket = io(API_URL);
@@ -58,15 +67,6 @@ export function RoomProvider({ children }) {
       socket.off('text-deleted');
     };
   }, [socket, addToast]);
-
-  // Add toast notification
-  const addToast = useCallback((message, type = 'info') => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 3000);
-  }, []);
 
   // Check if room exists
   const checkRoom = async (pin) => {
