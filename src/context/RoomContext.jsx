@@ -71,11 +71,20 @@ export function RoomProvider({ children }) {
   // Check if room exists
   const checkRoom = async (pin) => {
     try {
+      console.log('🔍 Checking room:', pin);
+      console.log('📡 API_URL:', API_URL);
+      console.log('🌐 Full URL:', `${API_URL}/api/rooms/${pin}`);
+      
       const res = await fetch(`${API_URL}/api/rooms/${pin}`);
+      console.log('📥 Response status:', res.status);
+      
       const data = await res.json();
+      console.log('📦 Response data:', data);
+      
       return data.exists;
     } catch (error) {
-      console.error('Error checking room:', error);
+      console.error('❌ Error checking room:', error);
+      addToast('Failed to check room. Check console for details.', 'error');
       return false;
     }
   };
@@ -83,21 +92,29 @@ export function RoomProvider({ children }) {
   // Create room
   const createRoom = async (pin) => {
     try {
+      console.log('🏗️ Creating room:', pin);
+      console.log('📡 API_URL:', API_URL);
+      
       const res = await fetch(`${API_URL}/api/rooms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin })
       });
+      
+      console.log('📥 Create response status:', res.status);
       const data = await res.json();
+      console.log('📦 Create response data:', data);
+      
       if (data.success) {
         setRoomPin(pin);
+        addToast('Room created successfully!', 'success');
         return true;
       }
       addToast(data.error || 'Failed to create room', 'error');
       return false;
     } catch (error) {
-      console.error('Error creating room:', error);
-      addToast('Failed to create room', 'error');
+      console.error('❌ Error creating room:', error);
+      addToast('Failed to create room. Check console for details.', 'error');
       return false;
     }
   };
