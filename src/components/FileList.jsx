@@ -13,6 +13,7 @@ export default function FileList() {
   } = useRoom();
 
   const [previewImage, setPreviewImage] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
 
   const formatFileSize = (bytes) => {
     if (bytes < 1024) return bytes + ' B';
@@ -65,6 +66,16 @@ export default function FileList() {
 
   const closePreview = () => {
     setPreviewImage(null);
+  };
+
+  const handleCopyText = async (textId, content) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedId(textId);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy text:', err);
+    }
   };
 
   const totalItems = files.length + texts.length;
@@ -158,8 +169,15 @@ export default function FileList() {
                 <span>{text.uploadedBy}</span>
               </div>
               
-              {role === 'uploader' && (
-                <div className="file-actions">
+              <div className="file-actions">
+                <button 
+                  className="btn-icon copy"
+                  title={copiedId === text.id ? "Copied!" : "Copy text"}
+                  onClick={() => handleCopyText(text.id, text.content)}
+                >
+                  {copiedId === text.id ? '✓' : '📋'}
+                </button>
+                {role === 'uploader' && (
                   <button 
                     className="btn-icon delete"
                     title="Delete"
@@ -167,8 +185,8 @@ export default function FileList() {
                   >
                     🗑️
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ))}
         </div>

@@ -4,9 +4,9 @@ import { io } from 'socket.io-client';
 const RoomContext = createContext(null);
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const SHARED_ROOM_PIN = '1234'; // Single shared room for all users
 
 export function RoomProvider({ children }) {
-  const [roomPin, setRoomPin] = useState(null);
   const [role, setRole] = useState(null);
   const [files, setFiles] = useState([]);
   const [texts, setTexts] = useState([]);
@@ -32,11 +32,11 @@ export function RoomProvider({ children }) {
 
   // Join/leave room on socket
   useEffect(() => {
-    if (socket && roomPin) {
-      socket.emit('join-room', roomPin);
-      return () => socket.emit('leave-room', roomPin);
+    if (socket) {
+      socket.emit('join-room', SHARED_ROOM_PIN);
+      return () => socket.emit('leave-room', SHARED_ROOM_PIN);
     }
-  }, [socket, roomPin]);
+  }, [socket]);
 
   // Listen for real-time updates
   useEffect(() => {
@@ -68,68 +68,11 @@ export function RoomProvider({ children }) {
     };
   }, [socket, addToast]);
 
-  // Check if room exists
-  const checkRoom = async (pin) => {
-    try {
-      console.log('🔍 Checking room:', pin);
-      console.log('📡 API_URL:', API_URL);
-      console.log('🌐 Full URL:', `${API_URL}/api/rooms/${pin}`);
-      
-      const res = await fetch(`${API_URL}/api/rooms/${pin}`);
-      console.log('📥 Response status:', res.status);
-      
-      const data = await res.json();
-      console.log('📦 Response data:', data);
-      
-      return data.exists;
-    } catch (error) {
-      console.error('❌ Error checking room:', error);
-      addToast('Failed to check room. Check console for details.', 'error');
-      return false;
-    }
-  };
-
-  // Create room
-  const createRoom = async (pin) => {
-    try {
-      console.log('🏗️ Creating room:', pin);
-      console.log('📡 API_URL:', API_URL);
-      
-      const res = await fetch(`${API_URL}/api/rooms`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin })
-      });
-      
-      console.log('📥 Create response status:', res.status);
-      const data = await res.json();
-      console.log('📦 Create response data:', data);
-      
-      if (data.success) {
-        setRoomPin(pin);
-        addToast('Room created successfully!', 'success');
-        return true;
-      }
-      addToast(data.error || 'Failed to create room', 'error');
-      return false;
-    } catch (error) {
-      console.error('❌ Error creating room:', error);
-      addToast('Failed to create room. Check console for details.', 'error');
-      return false;
-    }
-  };
-
-  // Join room
-  const joinRoom = (pin) => {
-    setRoomPin(pin);
-  };
-
   // Load room content
   const loadRoomContent = async () => {
-    if (!roomPin) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/rooms/${roomPin}/contents`);
+      const res = await fetch(`${API_URL}/api/rooms/${SHARED_ROOM_PIN}/contents`);
       const data = await res.json();
       setFiles(data.files || []);
       setTexts(data.texts || []);
@@ -143,7 +86,7 @@ export function RoomProvider({ children }) {
 
   // Upload files
   const uploadFiles = async (fileList) => {
-    if (!roomPin || role !== 'uploader') return false;
+    if (role !== 'uploader') return false;
     
     try {
       // Upload files one by one since backend expects single file
@@ -151,7 +94,7 @@ export function RoomProvider({ children }) {
         const formData = new FormData();
         formData.append('file', file);
         
-        const res = await fetch(`${API_URL}/api/rooms/${roomPin}/files`, {
+        const res = await fetch(`${API_URL}/api/rooms/${SHARED_ROOM_PIN}/files`, {
           method: 'POST',
           body: formData
         });
@@ -175,10 +118,10 @@ export function RoomProvider({ children }) {
 
   // Upload text
   const uploadText = async (content) => {
-    if (!roomPin || role !== 'uploader' || !content.trim()) return false;
+    if (role !== 'uploader' || !content.trim()) return false;
     
     try {
-      const res = await fetch(`${API_URL}/api/rooms/${roomPin}/texts`, {
+      const res = await fetch(`${API_URL}/api/rooms/${SHARED_ROOM_PIN}/texts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content })
@@ -198,7 +141,7 @@ export function RoomProvider({ children }) {
 
   // Delete file
   const deleteFile = async (fileId) => {
-    if (!roomPin || role !== 'uploader') return false;
+    if (role !== 'uploader') return false;
     
     try {
       const res = await fetch(`${API_URL}/api/files/${fileId}`, {
@@ -219,7 +162,7 @@ export function RoomProvider({ children }) {
 
   // Delete text
   const deleteText = async (textId) => {
-    if (!roomPin || role !== 'uploader') return false;
+    if (role !== 'uploader') return false;
     
     try {
       const res = await fetch(`${API_URL}/api/texts/${textId}`, {
@@ -247,25 +190,20 @@ export function RoomProvider({ children }) {
     return `${API_URL}/api/files/${fileId}/download`;
   };
 
-  // Leave room
+  // Leave room (now just resets role)
   const leaveRoom = () => {
-    setRoomPin(null);
     setRole(null);
     setFiles([]);
     setTexts([]);
   };
 
   const value = {
-    roomPin,
     role,
     files,
     texts,
     loading,
     toasts,
     setRole,
-    checkRoom,
-    createRoom,
-    joinRoom,
     loadRoomContent,
     uploadFiles,
     uploadText,

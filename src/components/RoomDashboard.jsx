@@ -5,11 +5,11 @@ import TextUploader from './TextUploader';
 import FileList from './FileList';
 
 export default function RoomDashboard() {
-  const { roomPin, role, loading, loadRoomContent, leaveRoom, toasts } = useRoom();
+  const { role, loading, loadRoomContent, leaveRoom, toasts } = useRoom();
 
   useEffect(() => {
     loadRoomContent();
-  }, [roomPin]);
+  }, []);
 
   return (
     <div className="dashboard">
@@ -18,11 +18,7 @@ export default function RoomDashboard() {
       
       <header className="dashboard-header">
         <div className="header-left">
-          <span className="header-logo">gimme</span>
-          <div className="room-pin-badge">
-            <span>🔑</span>
-            Room: <strong>{roomPin}</strong>
-          </div>
+          <span className="header-logo">shareto.me</span>
         </div>
         
         <div className="header-right">
@@ -31,7 +27,7 @@ export default function RoomDashboard() {
             {role === 'uploader' ? 'Uploader' : 'Viewer'}
           </div>
           <button className="btn btn-secondary btn-leave" onClick={leaveRoom}>
-            Leave Room
+            Switch Role
           </button>
         </div>
       </header>
@@ -47,7 +43,7 @@ export default function RoomDashboard() {
         {loading ? (
           <div className="loading-spinner">
             <div className="spinner"></div>
-            <span>Loading room content...</span>
+            <span>Loading content...</span>
           </div>
         ) : (
           <FileList />

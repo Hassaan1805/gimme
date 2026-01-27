@@ -1,7 +1,7 @@
 import { useRoom } from '../context/RoomContext';
 
 export default function RoleSelector() {
-  const { roomPin, setRole } = useRoom();
+  const { setRole } = useRoom();
 
   const handleSelectRole = (selectedRole) => {
     setRole(selectedRole);
@@ -13,13 +13,10 @@ export default function RoleSelector() {
       <div className="bg-orb bg-orb-2"></div>
       
       <div className="role-content">
-        <div className="room-pin-badge">
-          <span>🔑</span>
-          Room PIN: <strong>{roomPin}</strong>
+        <div className="logo">
+          <h1>shareto.me</h1>
+          <p>Choose your role to get started</p>
         </div>
-        
-        <h2>Choose Your Role</h2>
-        <p>Select how you want to participate in this room</p>
         
         <div className="role-cards">
           <div 
