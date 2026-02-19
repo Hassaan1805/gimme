@@ -13,8 +13,18 @@ export default function RoomDashboard() {
 
   return (
     <div className="dashboard">
+      {/* Gradient orbs */}
       <div className="bg-orb bg-orb-1"></div>
       <div className="bg-orb bg-orb-2"></div>
+      <div className="bg-orb bg-orb-3"></div>
+      <div className="bg-orb bg-orb-4"></div>
+
+      {/* Twinkling stars */}
+      <div className="bg-stars" aria-hidden="true">
+        {Array.from({ length: 55 }).map((_, i) => (
+          <div key={i} className="bg-star" style={{ '--s': i }} />
+        ))}
+      </div>
       
       <header className="dashboard-header">
         <div className="header-left">
