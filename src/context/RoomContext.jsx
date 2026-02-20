@@ -8,6 +8,7 @@ const SHARED_ROOM_PIN = '1234'; // Single shared room for all users
 
 export function RoomProvider({ children }) {
   const [role, setRole] = useState(null);
+  const [folder, setFolder] = useState(null); // Current folder: 'hassaan' or 'zaid'
   const [files, setFiles] = useState([]);
   const [texts, setTexts] = useState([]);
   const [socket, setSocket] = useState(null);
@@ -40,11 +41,14 @@ export function RoomProvider({ children }) {
 
   // Listen for real-time updates
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !folder) return;
 
     socket.on('file-added', (file) => {
-      setFiles(prev => [...prev, file]);
-      addToast('New file uploaded!', 'success');
+      // Only add if file belongs to current folder
+      if (file.folder === folder) {
+        setFiles(prev => [...prev, file]);
+        addToast('New file uploaded!', 'success');
+      }
     });
 
     socket.on('file-deleted', (fileId) => {
@@ -52,8 +56,11 @@ export function RoomProvider({ children }) {
     });
 
     socket.on('text-added', (text) => {
-      setTexts(prev => [...prev, text]);
-      addToast('New text added!', 'success');
+      // Only add if text belongs to current folder
+      if (text.folder === folder) {
+        setTexts(prev => [...prev, text]);
+        addToast('New text added!', 'success');
+      }
     });
 
     socket.on('text-deleted', (textId) => {
@@ -66,13 +73,15 @@ export function RoomProvider({ children }) {
       socket.off('text-added');
       socket.off('text-deleted');
     };
-  }, [socket, addToast]);
+  }, [socket, folder, addToast]);
 
   // Load room content
   const loadRoomContent = async () => {
+    if (!folder) return; // Don't load if no folder selected
+    
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/rooms/${SHARED_ROOM_PIN}/contents`);
+      const res = await fetch(`${API_URL}/api/rooms/${SHARED_ROOM_PIN}/contents?folder=${folder}`);
       const data = await res.json();
       setFiles(data.files || []);
       setTexts(data.texts || []);
@@ -86,13 +95,14 @@ export function RoomProvider({ children }) {
 
   // Upload files
   const uploadFiles = async (fileList) => {
-    if (role !== 'uploader') return false;
+    if (role !== 'uploader' || !folder) return false;
     
     try {
       // Upload files one by one since backend expects single file
       const uploadPromises = Array.from(fileList).map(async (file) => {
         const formData = new FormData();
         formData.append('file', file);
+        formData.append('folder', folder);
         
         const res = await fetch(`${API_URL}/api/rooms/${SHARED_ROOM_PIN}/files`, {
           method: 'POST',
@@ -118,13 +128,13 @@ export function RoomProvider({ children }) {
 
   // Upload text
   const uploadText = async (content) => {
-    if (role !== 'uploader' || !content.trim()) return false;
+    if (role !== 'uploader' || !content.trim() || !folder) return false;
     
     try {
       const res = await fetch(`${API_URL}/api/rooms/${SHARED_ROOM_PIN}/texts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ content, folder })
       });
       const data = await res.json();
       if (data.id) {
@@ -190,20 +200,15 @@ export function RoomProvider({ children }) {
     return `${API_URL}/api/files/${fileId}/download`;
   };
 
-  // Leave room (now just resets role)
-  const leaveRoom = () => {
-    setRole(null);
-    setFiles([]);
-    setTexts([]);
-  };
-
   const value = {
     role,
+    folder,
     files,
     texts,
     loading,
     toasts,
     setRole,
+    setFolder,
     loadRoomContent,
     uploadFiles,
     uploadText,
@@ -211,7 +216,6 @@ export function RoomProvider({ children }) {
     deleteText,
     getFilePreviewUrl,
     getFileDownloadUrl,
-    leaveRoom,
     addToast
   };
 

@@ -1,5 +1,45 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useRoom } from '../context/RoomContext';
+
+// Component to handle image thumbnails with signed URLs
+function ImageThumbnail({ fileId, alt, getFilePreviewUrl }) {
+  const [imageUrl, setImageUrl] = useState(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    
+    async function loadImage() {
+      try {
+        const res = await fetch(getFilePreviewUrl(fileId));
+        const data = await res.json();
+        if (mounted) {
+          setImageUrl(data.url);
+        }
+      } catch (err) {
+        if (mounted) {
+          setError(true);
+        }
+      }
+    }
+    
+    loadImage();
+    
+    return () => {
+      mounted = false;
+    };
+  }, [fileId, getFilePreviewUrl]);
+
+  if (error) {
+    return <span className="file-preview-icon">🖼️</span>;
+  }
+
+  if (!imageUrl) {
+    return <span className="file-preview-icon loading">⏳</span>;
+  }
+
+  return <img src={imageUrl} alt={alt} loading="lazy" />;
+}
 
 export default function FileList() {
   const {
@@ -65,7 +105,14 @@ export default function FileList() {
 
   const openDocPreview = async (file) => {
     if (isImage(file.fileType)) {
-      setPreviewImage({ url: getFilePreviewUrl(file.id), name: file.originalName });
+      try {
+        // Fetch the signed URL from the API
+        const res = await fetch(getFilePreviewUrl(file.id));
+        const data = await res.json();
+        setPreviewImage({ url: data.url, name: file.originalName });
+      } catch (error) {
+        console.error('Failed to load image:', error);
+      }
       return;
     }
     setPreviewDoc({ type: 'loading', name: file.originalName });
@@ -212,7 +259,11 @@ export default function FileList() {
       >
         {isImage(file.fileType) ? (
           <>
-            <img src={getFilePreviewUrl(file.id)} alt={file.originalName} loading="lazy" />
+            <ImageThumbnail 
+              fileId={file.id} 
+              alt={file.originalName} 
+              getFilePreviewUrl={getFilePreviewUrl}
+            />
             <div className="preview-overlay"><span>🔍</span></div>
           </>
         ) : (

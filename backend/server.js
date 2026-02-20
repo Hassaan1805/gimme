@@ -92,6 +92,7 @@ app.post('/api/rooms', async (req, res) => {
 app.get('/api/rooms/:pin/contents', async (req, res) => {
     try {
         const { pin } = req.params;
+        const { folder } = req.query;
 
         // Verify room exists
         const { data: room } = await supabase
@@ -104,20 +105,36 @@ app.get('/api/rooms/:pin/contents', async (req, res) => {
             return res.status(404).json({ error: 'Room not found' });
         }
 
-        // Get files
-        const { data: files, error: filesError } = await supabase
+        // Build queries with folder filter if provided
+        let filesQuery = supabase
             .from('files')
             .select('*')
-            .eq('room_pin', pin)
+            .eq('room_pin', pin);
+        
+        let textsQuery = supabase
+            .from('texts')
+            .select('*')
+            .eq('room_pin', pin);
+        
+        if (folder) {
+            // For guest folder, include items with NULL folder (backward compatibility)
+            if (folder === 'guest') {
+                filesQuery = filesQuery.or('folder.eq.guest,folder.is.null');
+                textsQuery = textsQuery.or('folder.eq.guest,folder.is.null');
+            } else {
+                filesQuery = filesQuery.eq('folder', folder);
+                textsQuery = textsQuery.eq('folder', folder);
+            }
+        }
+
+        // Get files
+        const { data: files, error: filesError } = await filesQuery
             .order('uploaded_at', { ascending: false });
 
         if (filesError) throw filesError;
 
         // Get texts
-        const { data: texts, error: textsError } = await supabase
-            .from('texts')
-            .select('*')
-            .eq('room_pin', pin)
+        const { data: texts, error: textsError } = await textsQuery
             .order('uploaded_at', { ascending: false });
 
         if (textsError) throw textsError;
@@ -128,13 +145,15 @@ app.get('/api/rooms/:pin/contents', async (req, res) => {
             originalName: file.original_name,
             fileType: file.file_type,
             uploadedBy: file.uploaded_by,
-            uploadedAt: file.uploaded_at
+            uploadedAt: file.uploaded_at,
+            folder: file.folder
         }));
 
         const textsFormatted = texts.map(text => ({
             ...text,
             uploadedBy: text.uploaded_by,
-            uploadedAt: text.uploaded_at
+            uploadedAt: text.uploaded_at,
+            folder: text.folder
         }));
 
         res.json({ files: filesWithUrls, texts: textsFormatted });
@@ -150,10 +169,15 @@ app.get('/api/rooms/:pin/contents', async (req, res) => {
 app.post('/api/rooms/:pin/files', upload.single('file'), async (req, res) => {
     try {
         const { pin } = req.params;
+        const { folder } = req.body;
         const file = req.file;
 
         if (!file) {
             return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        if (!folder) {
+            return res.status(400).json({ error: 'Folder is required' });
         }
 
         // Verify room exists
@@ -170,7 +194,7 @@ app.post('/api/rooms/:pin/files', upload.single('file'), async (req, res) => {
         // Generate unique filename
         const fileId = uuidv4();
         const fileExt = file.originalname.split('.').pop();
-        const storagePath = `${pin}/${fileId}.${fileExt}`;
+        const storagePath = `${pin}/${folder}/${fileId}.${fileExt}`;
 
         // Upload to Supabase Storage
         const { error: uploadError } = await supabase.storage
@@ -187,6 +211,7 @@ app.post('/api/rooms/:pin/files', upload.single('file'), async (req, res) => {
             .insert({
                 id: fileId,
                 room_pin: pin,
+                folder: folder,
                 original_name: file.originalname,
                 file_type: file.mimetype,
                 size: file.size,
@@ -205,7 +230,8 @@ app.post('/api/rooms/:pin/files', upload.single('file'), async (req, res) => {
             size: fileData.size,
             uploadedBy: fileData.uploaded_by,
             uploadedAt: fileData.uploaded_at,
-            storage_path: fileData.storage_path
+            storage_path: fileData.storage_path,
+            folder: fileData.folder
         };
 
         // Emit socket event
@@ -327,10 +353,14 @@ app.delete('/api/files/:fileId', async (req, res) => {
 app.post('/api/rooms/:pin/texts', async (req, res) => {
     try {
         const { pin } = req.params;
-        const { content } = req.body;
+        const { content, folder } = req.body;
 
         if (!content || content.trim().length === 0) {
             return res.status(400).json({ error: 'Content is required' });
+        }
+
+        if (!folder) {
+            return res.status(400).json({ error: 'Folder is required' });
         }
 
         // Verify room exists
@@ -348,6 +378,7 @@ app.post('/api/rooms/:pin/texts', async (req, res) => {
             .from('texts')
             .insert({
                 room_pin: pin,
+                folder: folder,
                 content: content.trim(),
                 uploaded_by: 'Anonymous'
             })
@@ -360,7 +391,8 @@ app.post('/api/rooms/:pin/texts', async (req, res) => {
             id: text.id,
             content: text.content,
             uploadedBy: text.uploaded_by,
-            uploadedAt: text.uploaded_at
+            uploadedAt: text.uploaded_at,
+            folder: text.folder
         };
 
         io.to(pin).emit('text-added', responseText);
