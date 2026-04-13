@@ -2,6 +2,35 @@
 
 Share files and text snippets instantly in temporary rooms with real-time synchronization.
 
+## 📖 Project Summary
+
+**Gimme** is a lightweight, real-time sharing platform designed for quick collaboration without account setup.  
+Users create or join a room using a PIN, choose a role (Uploader or Receiver), and immediately share files or text snippets with everyone connected to that room.
+
+The project follows a modern client-server architecture:
+- The **frontend** (React + Vite) provides the room workflow and real-time UI updates.
+- The **backend** (Node.js + Express + Socket.io) handles room management, uploads, content APIs, and event broadcasting.
+- **Supabase** powers persistent storage through PostgreSQL tables (`rooms`, `files`, `texts`) and an `uploads` storage bucket for file objects.
+
+### How it works end-to-end
+1. A user creates or joins a PIN-based room.
+2. Clients connect to the backend and subscribe to that room via Socket.io.
+3. File uploads are sent to backend APIs, stored in Supabase Storage, and indexed in the database.
+4. Text snippets are stored in the database and tied to the same room.
+5. The backend emits events like `file-added`, `file-deleted`, `text-added`, and `text-deleted`.
+6. All connected clients update instantly without refresh.
+
+### Why this project exists
+- Fast temporary sharing between devices/users
+- No heavy onboarding flow
+- Real-time collaborative visibility
+- Simple deployment model (Frontend + Backend + Supabase)
+
+### Current state
+- Core room, file, text, and real-time sync flows are implemented.
+- API and Socket.io event naming is aligned between frontend and backend.
+- Deployment and troubleshooting docs are included (`DEPLOYMENT.md`, `DEPLOYMENT_CHECKLIST.md`, `DEBUG_GUIDE.md`).
+
 ## ✨ Features
 
 - 🔐 **PIN-based Rooms** - Create or join rooms with custom PINs
@@ -121,4 +150,3 @@ MIT
 
 **Hassaan**
 - GitHub: [@Hassaan1805](https://github.com/Hassaan1805)
-

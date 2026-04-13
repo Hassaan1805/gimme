@@ -1,3 +1,18 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --animate-star-btn: star-btn calc(var(--duration) * 1s) infinite linear;
+
+  @keyframes star-btn {
+    to {
+      offset-distance: 100%;
+    }
+  }
+}
+
 :root {
   /* Colors */
   --bg-primary: #0a0a0f;
@@ -58,13 +73,7 @@ body {
 
 /* Background noise texture */
 body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  opacity: 0.03;
-  pointer-events: none;
-  z-index: 0;
+  content: none;
 }
 
 /* Gradient orbs */
@@ -630,6 +639,25 @@ body::before {
   overflow: hidden;
 }
 
+.file-preview.loading {
+  cursor: progress;
+}
+
+.file-preview-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.file-preview-placeholder .spinner {
+  width: 20px;
+  height: 20px;
+}
+
 .file-preview img {
   width: 100%;
   height: 100%;
@@ -681,6 +709,11 @@ body::before {
   color: var(--text-secondary);
   cursor: pointer;
   transition: var(--transition-fast);
+}
+
+.btn-icon:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .btn-icon:hover {
@@ -751,6 +784,31 @@ body::before {
   border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
+}
+
+.infinite-status-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 1.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.infinite-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.infinite-status.done {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: var(--success);
 }
 
 @keyframes spin {
@@ -962,19 +1020,7 @@ body::before {
 
 /* Aurora mesh layer */
 body::after {
-  content: '';
-  position: fixed;
-  inset: -30%;
-  width: 160%;
-  height: 160%;
-  background:
-    radial-gradient(ellipse 70% 55% at 15% 25%, rgba(124, 58, 237, 0.14) 0%, transparent 55%),
-    radial-gradient(ellipse 55% 65% at 85% 75%, rgba(6, 182, 212, 0.12) 0%, transparent 55%),
-    radial-gradient(ellipse 45% 50% at 60% 10%, rgba(6, 182, 212, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse 50% 40% at 30% 85%, rgba(124, 58, 237, 0.07) 0%, transparent 50%);
-  animation: aurora-drift 30s ease-in-out infinite alternate;
-  pointer-events: none;
-  z-index: 0;
+  content: none;
 }
 
 @keyframes aurora-drift {
@@ -1295,8 +1341,9 @@ body::after {
 .sort-pill.active {
   background: rgba(124, 58, 237, 0.18);
   border-color: var(--primary);
-  color: var(--primary);
+  color: var(--text-primary);
   font-weight: 600;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
 }
 
 /* ============ FORMAT FILTER TABS ============ */
@@ -1553,6 +1600,28 @@ body::after {
   font-weight: 500;
   white-space: nowrap;
   color: var(--text-secondary);
+}
+
+.room-tab {
+  gap: 0.45rem;
+}
+
+.room-tab-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.create-room-tab {
+  border-style: dashed;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(6, 182, 212, 0.12);
+}
+
+.create-room-tab:hover {
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .folder-tab:hover {

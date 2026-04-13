@@ -9,9 +9,6 @@ export default function RoleSelector() {
 
   return (
     <div className="role-selector">
-      <div className="bg-orb bg-orb-1"></div>
-      <div className="bg-orb bg-orb-2"></div>
-      
       <div className="role-content">
         <div className="logo">
           <h1>shareto.me</h1>

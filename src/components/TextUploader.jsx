@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { useRoom } from '../context/RoomContext';
+import { StarButton } from '@/components/ui/star-button';
 
 export default function TextUploader() {
   const [text, setText] = useState('');
@@ -70,30 +71,39 @@ export default function TextUploader() {
       {pastedImage && (
         <div className="pasted-image-preview">
           <div className="pasted-image-content">
-            <button 
-              className="pasted-image-remove" 
+            <StarButton
+              type="button"
+              className="pasted-image-remove"
+              backgroundColor="#dc2626"
+              lightColor="#fee2e2"
               onClick={handleCancelImage}
               disabled={uploading}
               title="Remove image"
             >
               ✕
-            </button>
+            </StarButton>
             <img src={pastedImage} alt="Pasted screenshot" />
             <div className="pasted-image-actions">
-              <button 
-                className="btn btn-secondary btn-sm"
+              <StarButton
+                type="button"
+                className="btn-sm"
+                backgroundColor="#334155"
+                lightColor="#f8fafc"
                 onClick={handleCancelImage}
                 disabled={uploading}
               >
                 Cancel
-              </button>
-              <button 
-                className="btn btn-primary btn-sm"
+              </StarButton>
+              <StarButton
+                type="button"
+                className="btn-sm"
+                backgroundColor="#7c3aed"
+                lightColor="#f5f3ff"
                 onClick={handleUploadImage}
                 disabled={uploading}
               >
                 {uploading ? 'Uploading...' : '📤 Upload Screenshot'}
-              </button>
+              </StarButton>
             </div>
           </div>
         </div>
@@ -114,13 +124,16 @@ export default function TextUploader() {
         <span className="char-count">
           {text.length} / {maxChars}
         </span>
-        <button 
-          className="btn btn-primary btn-submit-text"
+        <StarButton
+          type="button"
+          className="btn-submit-text"
+          backgroundColor="#7c3aed"
+          lightColor="#f5f3ff"
           onClick={handleSubmit}
           disabled={!text.trim() || uploading}
         >
           {uploading ? 'Posting...' : '📝 Post Text'}
-        </button>
+        </StarButton>
       </div>
     </div>
   );

@@ -3,48 +3,136 @@ import { useRoom } from '../context/RoomContext';
 import FileUploader from './FileUploader';
 import TextUploader from './TextUploader';
 import FileList from './FileList';
-import FolderSelector from './FolderSelector';
+import { StarButton } from '@/components/ui/star-button';
 
-const FOLDERS = [
-  { name: 'guest', emoji: '🌐', label: 'Guest', noPassword: true },
-  { name: 'hassaan', emoji: '👤', label: 'Hassaan', password: 'hassaan' },
-  { name: 'zaid', emoji: '👤', label: 'Zaid', password: 'zaid' }
+const DEFAULT_ROOMS = [
+  {
+    key: 'guest',
+    label: 'guest',
+    emoji: '🌐',
+    noPassword: true,
+    candidatePins: ['1234', 'guest']
+  },
+  {
+    key: 'hassaan',
+    label: 'hassaan',
+    emoji: '👤',
+    password: 'hassaan',
+    candidatePins: ['2345', 'hassaan']
+  },
+  {
+    key: 'zaid',
+    label: 'zaid',
+    emoji: '👤',
+    password: 'zaid',
+    candidatePins: ['3456', 'zaid']
+  }
 ];
 
+const normalizeValue = (value) => String(value || '').toLowerCase();
+
 export default function RoomDashboard() {
-  const { role, setRole, folder, loading, loadRoomContent, setFolder, toasts } = useRoom();
+  const {
+    role,
+    setRole,
+    rooms,
+    roomsLoading,
+    roomPin,
+    currentRoom,
+    loading,
+    loadRoomContent,
+    joinRoom,
+    createRoom,
+    toasts
+  } = useRoom();
+
+  const [showCreateRoomModal, setShowCreateRoomModal] = useState(false);
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
-  const [pendingFolder, setPendingFolder] = useState(null);
+  const [pendingRoom, setPendingRoom] = useState(null);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [newRoomName, setNewRoomName] = useState('');
+  const [newRoomPin, setNewRoomPin] = useState('');
+  const [createRoomError, setCreateRoomError] = useState('');
+  const [creatingRoom, setCreatingRoom] = useState(false);
+
+  const defaultRooms = DEFAULT_ROOMS.map((spec) => {
+    const matchedRoom = rooms.find((room) => {
+      const pin = normalizeValue(room.pin);
+      const name = normalizeValue(room.name);
+      return spec.candidatePins.includes(pin) || name === spec.key;
+    });
+
+    return {
+      ...spec,
+      pin: matchedRoom?.pin || spec.candidatePins[0],
+      name: spec.label
+    };
+  });
+
+  const customRooms = rooms.filter((room) => {
+    const pin = normalizeValue(room.pin);
+    const name = normalizeValue(room.name);
+
+    return !DEFAULT_ROOMS.some(spec =>
+      spec.key === name || spec.candidatePins.includes(pin)
+    );
+  });
 
   useEffect(() => {
-    // Auto-select guest folder if none selected
-    if (!folder) {
-      setFolder('guest');
-    }
-  }, [folder, setFolder]);
-
-  useEffect(() => {
-    if (folder) {
+    if (roomPin) {
       loadRoomContent();
     }
-  }, [folder]);
+  }, [roomPin, loadRoomContent]);
 
-  const handleFolderSwitch = (folderName) => {
-    const folderConfig = FOLDERS.find(f => f.name === folderName);
-    
-    // If same folder, do nothing
-    if (folderName === folder) return;
-    
-    // If no password required, switch immediately
-    if (folderConfig.noPassword) {
-      setFolder(folderName);
+  const handleCreateRoomSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!newRoomName.trim()) {
+      setCreateRoomError('Room name is required');
       return;
     }
-    
-    // Show password prompt
-    setPendingFolder(folderConfig);
+
+    setCreatingRoom(true);
+    setCreateRoomError('');
+
+    const created = await createRoom({
+      roomName: newRoomName.trim(),
+      pin: newRoomPin.trim() || undefined
+    });
+
+    if (created) {
+      closeCreateRoomModal();
+    } else {
+      setCreateRoomError('Could not create room. Try another name or PIN.');
+    }
+
+    setCreatingRoom(false);
+  };
+
+  const closeCreateRoomModal = () => {
+    setShowCreateRoomModal(false);
+    setNewRoomName('');
+    setNewRoomPin('');
+    setCreateRoomError('');
+  };
+
+  const closePasswordPrompt = () => {
+    setShowPasswordPrompt(false);
+    setPendingRoom(null);
+    setPasswordInput('');
+    setPasswordError('');
+  };
+
+  const handleRoomSwitch = (room) => {
+    if (room.pin === roomPin) return;
+
+    if (room.noPassword) {
+      joinRoom(room.pin);
+      return;
+    }
+
+    setPendingRoom(room);
     setShowPasswordPrompt(true);
     setPasswordInput('');
     setPasswordError('');
@@ -52,44 +140,22 @@ export default function RoomDashboard() {
 
   const handlePasswordSubmit = (e) => {
     e.preventDefault();
-    
-    if (passwordInput === pendingFolder.password) {
-      setFolder(pendingFolder.name);
-      setShowPasswordPrompt(false);
-      setPendingFolder(null);
-      setPasswordInput('');
-      setPasswordError('');
-    } else {
-      setPasswordError('Incorrect password');
-    }
-  };
 
-  const closePasswordPrompt = () => {
-    setShowPasswordPrompt(false);
-    setPendingFolder(null);
-    setPasswordInput('');
-    setPasswordError('');
+    if (passwordInput === pendingRoom?.password) {
+      joinRoom(pendingRoom.pin);
+      closePasswordPrompt();
+      return;
+    }
+
+    setPasswordError('Incorrect password');
   };
 
   return (
     <div className="dashboard">
-      {/* Gradient orbs */}
-      <div className="bg-orb bg-orb-1"></div>
-      <div className="bg-orb bg-orb-2"></div>
-      <div className="bg-orb bg-orb-3"></div>
-      <div className="bg-orb bg-orb-4"></div>
-
-      {/* Twinkling stars */}
-      <div className="bg-stars" aria-hidden="true">
-        {Array.from({ length: 55 }).map((_, i) => (
-          <div key={i} className="bg-star" style={{ '--s': i }} />
-        ))}
-      </div>
-      
       <header className="dashboard-header">
         <div className="header-left">
           <span className="header-logo">shareto.me</span>
-          <span className="folder-badge">📁 {folder}</span>
+          {currentRoom && <span className="folder-badge">📁 {currentRoom.name}</span>}
         </div>
         
         <div className="header-right">
@@ -97,9 +163,15 @@ export default function RoomDashboard() {
             <span>{role === 'uploader' ? '🔼' : '👀'}</span>
             {role === 'uploader' ? 'Uploader' : 'Viewer'}
           </div>
-          <button className="btn btn-secondary btn-leave" onClick={() => setRole(null)}>
+          <StarButton
+            type="button"
+            className="btn-leave"
+            backgroundColor="#334155"
+            lightColor="#f8fafc"
+            onClick={() => setRole(null)}
+          >
             Switch Role
-          </button>
+          </StarButton>
         </div>
       </header>
 
@@ -113,19 +185,60 @@ export default function RoomDashboard() {
 
         {/* Folder Tabs */}
         <div className="folder-tabs">
-          {FOLDERS.map((f) => (
-            <button
-              key={f.name}
-              className={`folder-tab ${folder === f.name ? 'active' : ''}`}
-              onClick={() => handleFolderSwitch(f.name)}
+          {defaultRooms.map((room) => (
+            <StarButton
+              type="button"
+              key={room.pin}
+              className={`folder-tab room-tab ${roomPin === room.pin ? 'active' : ''}`}
+              backgroundColor={roomPin === room.pin ? '#0f766e' : '#334155'}
+              lightColor={roomPin === room.pin ? '#ccfbf1' : '#f8fafc'}
+              onClick={() => handleRoomSwitch(room)}
             >
-              <span className="folder-tab-emoji">{f.emoji}</span>
-              <span className="folder-tab-label">{f.label}</span>
-            </button>
+              <span className="folder-tab-emoji">{room.emoji}</span>
+              <span className="folder-tab-label room-tab-name">{room.label}</span>
+            </StarButton>
           ))}
+
+          {customRooms.map((room) => (
+            <StarButton
+              type="button"
+              key={room.pin}
+              className={`folder-tab room-tab ${roomPin === room.pin ? 'active' : ''}`}
+              backgroundColor={roomPin === room.pin ? '#0f766e' : '#334155'}
+              lightColor={roomPin === room.pin ? '#ccfbf1' : '#f8fafc'}
+              onClick={() => joinRoom(room.pin)}
+            >
+              <span className="folder-tab-emoji">🗂️</span>
+              <span className="folder-tab-label room-tab-name">{room.name}</span>
+            </StarButton>
+          ))}
+
+          <StarButton
+            type="button"
+            className="folder-tab create-room-tab"
+            backgroundColor="#0e7490"
+            lightColor="#ecfeff"
+            onClick={() => setShowCreateRoomModal(true)}
+          >
+            <span className="folder-tab-emoji">➕</span>
+            <span className="folder-tab-label">Create Room</span>
+          </StarButton>
         </div>
 
-        {loading ? (
+        {roomsLoading && rooms.length === 0 && (
+          <div className="loading-spinner">
+            <div className="spinner"></div>
+            <span>Loading rooms...</span>
+          </div>
+        )}
+
+        {!roomPin && !roomsLoading ? (
+          <div className="empty-state">
+            <div className="empty-icon">🗂️</div>
+            <h3>No room selected</h3>
+            <p>Select a room or create one to start sharing files and text.</p>
+          </div>
+        ) : loading ? (
           <div className="loading-spinner">
             <div className="spinner"></div>
             <span>Loading content...</span>
@@ -144,12 +257,69 @@ export default function RoomDashboard() {
         ))}
       </div>
 
+      {/* Create Room Modal */}
+      {showCreateRoomModal && (
+        <div className="modal-overlay" onClick={closeCreateRoomModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="modal-title">➕ Create Room</h3>
+            <p className="modal-subtitle">Create a new isolated room for files and text</p>
+            <form onSubmit={handleCreateRoomSubmit}>
+              <input
+                type="text"
+                className="input-field"
+                placeholder="Room name"
+                value={newRoomName}
+                onChange={(e) => {
+                  setNewRoomName(e.target.value);
+                  setCreateRoomError('');
+                }}
+                autoFocus
+              />
+
+              <input
+                type="text"
+                className="input-field"
+                placeholder="Custom PIN (optional)"
+                value={newRoomPin}
+                onChange={(e) => {
+                  setNewRoomPin(e.target.value.trim());
+                  setCreateRoomError('');
+                }}
+              />
+
+              {createRoomError && <div className="error-message">{createRoomError}</div>}
+
+              <div className="modal-actions">
+                <StarButton
+                  type="button"
+                  className="w-full"
+                  backgroundColor="#334155"
+                  lightColor="#f8fafc"
+                  onClick={closeCreateRoomModal}
+                >
+                  Cancel
+                </StarButton>
+                <StarButton
+                  type="submit"
+                  className="w-full"
+                  backgroundColor="#7c3aed"
+                  lightColor="#f5f3ff"
+                  disabled={creatingRoom}
+                >
+                  {creatingRoom ? 'Creating...' : 'Create & Join'}
+                </StarButton>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Password Prompt Modal */}
       {showPasswordPrompt && (
         <div className="modal-overlay" onClick={closePasswordPrompt}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h3 className="modal-title">🔒 Enter Password</h3>
-            <p className="modal-subtitle">Password required for {pendingFolder?.label}</p>
+            <p className="modal-subtitle">Password required for {pendingRoom?.label}</p>
             <form onSubmit={handlePasswordSubmit}>
               <input
                 type="password"
@@ -164,12 +334,23 @@ export default function RoomDashboard() {
               />
               {passwordError && <div className="error-message">{passwordError}</div>}
               <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={closePasswordPrompt}>
+                <StarButton
+                  type="button"
+                  className="w-full"
+                  backgroundColor="#334155"
+                  lightColor="#f8fafc"
+                  onClick={closePasswordPrompt}
+                >
                   Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
+                </StarButton>
+                <StarButton
+                  type="submit"
+                  className="w-full"
+                  backgroundColor="#7c3aed"
+                  lightColor="#f5f3ff"
+                >
                   Unlock
-                </button>
+                </StarButton>
               </div>
             </form>
           </div>

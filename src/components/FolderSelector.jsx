@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useRoom } from '../context/RoomContext';
+import { StarButton } from '@/components/ui/star-button';
 
 const FOLDERS = [
   { name: 'guest', password: '', emoji: '🌐', noPassword: true },
@@ -56,14 +57,17 @@ export default function FolderSelector() {
 
         <div className="folder-grid">
           {FOLDERS.map((folder) => (
-            <button
+            <StarButton
+              type="button"
               key={folder.name}
               className={`folder-button ${selectedFolder === folder.name ? 'selected' : ''}`}
+              backgroundColor={selectedFolder === folder.name ? '#0f766e' : '#334155'}
+              lightColor={selectedFolder === folder.name ? '#ccfbf1' : '#f8fafc'}
               onClick={() => handleFolderSelect(folder.name)}
             >
               <span className="folder-emoji">{folder.emoji}</span>
               <span className="folder-name">{folder.name}</span>
-            </button>
+            </StarButton>
           ))}
         </div>
 
@@ -83,9 +87,14 @@ export default function FolderSelector() {
               />
             </div>
             {error && <div className="error-message">{error}</div>}
-            <button type="submit" className="btn btn-primary btn-full">
+            <StarButton
+              type="submit"
+              className="w-full"
+              backgroundColor="#7c3aed"
+              lightColor="#f5f3ff"
+            >
               🔓 Unlock {selectedFolder}
-            </button>
+            </StarButton>
           </form>
         )}
       </div>

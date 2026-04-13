@@ -1,55 +1,56 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useRoom } from '../context/RoomContext';
+import { StarButton } from '@/components/ui/star-button';
 
-// Component to handle image thumbnails with signed URLs
-function ImageThumbnail({ fileId, alt, getFilePreviewUrl }) {
-  const [imageUrl, setImageUrl] = useState(null);
-  const [error, setError] = useState(false);
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'heic', 'heif']);
+const PDF_EXTENSIONS = new Set(['pdf']);
+const WORD_EXTENSIONS = new Set(['doc', 'docx']);
+const TEXT_EXTENSIONS = new Set(['txt', 'md', 'json', 'csv', 'xml', 'log']);
+const ARCHIVE_EXTENSIONS = new Set(['zip', 'rar', '7z', 'tar', 'gz']);
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'avi', 'webm']);
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'm4a', 'aac']);
 
-  useEffect(() => {
-    let mounted = true;
-    
-    async function loadImage() {
-      try {
-        const res = await fetch(getFilePreviewUrl(fileId));
-        const data = await res.json();
-        if (mounted) {
-          setImageUrl(data.url);
-        }
-      } catch (err) {
-        if (mounted) {
-          setError(true);
-        }
-      }
-    }
-    
-    loadImage();
-    
-    return () => {
-      mounted = false;
-    };
-  }, [fileId, getFilePreviewUrl]);
+const getFileExtension = (name) => {
+  const parts = (name || '').split('.');
+  return parts.length > 1 ? parts.pop().toLowerCase() : '';
+};
 
-  if (error) {
-    return <span className="file-preview-icon">🖼️</span>;
-  }
+const getFileKind = (originalName, fileType) => {
+  const normalizedType = (fileType || '').toLowerCase();
 
-  if (!imageUrl) {
-    return <span className="file-preview-icon loading">⏳</span>;
-  }
+  if (normalizedType.startsWith('image/')) return 'image';
+  if (normalizedType.includes('pdf')) return 'pdf';
+  if (normalizedType.includes('word') || normalizedType.includes('doc')) return 'word';
+  if (normalizedType.startsWith('text/') || normalizedType.includes('txt')) return 'text';
+  if (normalizedType.startsWith('video/')) return 'video';
+  if (normalizedType.startsWith('audio/')) return 'audio';
+  if (normalizedType.includes('zip') || normalizedType.includes('rar') || normalizedType.includes('7z')) return 'archive';
 
-  return <img src={imageUrl} alt={alt} loading="lazy" />;
-}
+  const extension = getFileExtension(originalName);
+  if (IMAGE_EXTENSIONS.has(extension)) return 'image';
+  if (PDF_EXTENSIONS.has(extension)) return 'pdf';
+  if (WORD_EXTENSIONS.has(extension)) return 'word';
+  if (TEXT_EXTENSIONS.has(extension)) return 'text';
+  if (ARCHIVE_EXTENSIONS.has(extension)) return 'archive';
+  if (VIDEO_EXTENSIONS.has(extension)) return 'video';
+  if (AUDIO_EXTENSIONS.has(extension)) return 'audio';
+
+  return 'other';
+};
+
+const isPreviewableKind = (kind) => kind === 'image' || kind === 'pdf' || kind === 'word' || kind === 'text';
 
 export default function FileList() {
   const {
     files,
     texts,
     role,
+    hasMore,
+    loadingMore,
+    loadMoreContent,
     deleteFile,
     deleteText,
-    getFilePreviewUrl,
-    getFileDownloadUrl
+    fetchFileAccessInfo
   } = useRoom();
 
   const [previewImage, setPreviewImage] = useState(null);
@@ -57,96 +58,146 @@ export default function FileList() {
   const [copiedId, setCopiedId] = useState(null);
   const [sortBy, setSortBy] = useState('date-desc');
   const [filterType, setFilterType] = useState('all');
+  const [fileActionLoading, setFileActionLoading] = useState({});
+  const loadMoreRef = useRef(null);
+
+  const setFileLoadingState = useCallback((fileId, isLoading) => {
+    setFileActionLoading(prev => {
+      if (isLoading) {
+        return { ...prev, [fileId]: true };
+      }
+
+      const next = { ...prev };
+      delete next[fileId];
+      return next;
+    });
+  }, []);
+
+  const isFileLoading = useCallback((fileId) => Boolean(fileActionLoading[fileId]), [fileActionLoading]);
+
+  useEffect(() => {
+    if (!hasMore || !loadMoreRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMoreContent();
+        }
+      },
+      {
+        root: null,
+        rootMargin: '250px 0px',
+        threshold: 0.1
+      }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, loadMoreContent]);
 
   const formatFileSize = (bytes) => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    const numericBytes = Number(bytes) || 0;
+    if (numericBytes < 1024) return numericBytes + ' B';
+    if (numericBytes < 1024 * 1024) return (numericBytes / 1024).toFixed(1) + ' KB';
+    return (numericBytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
   const formatDate = (timestamp) => {
+    if (!timestamp) return 'Unknown date';
     const date = new Date(timestamp);
     return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
       ' · ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const isImage = (t) => t?.startsWith('image/');
-  const isPDF = (t) => t?.includes('pdf');
-  const isWord = (t) => t?.includes('word') || t?.includes('docx') || t?.includes('doc');
-  const isTextFile = (t) => t?.includes('text') || t?.includes('txt');
-  const isPreviewable = (t) => isImage(t) || isPDF(t) || isWord(t) || isTextFile(t);
-
-  const getFileIcon = (fileType) => {
-    if (isPDF(fileType)) return '📕';
-    if (isWord(fileType)) return '📘';
-    if (isTextFile(fileType)) return '📄';
-    if (fileType?.includes('zip') || fileType?.includes('rar')) return '🗜️';
-    if (fileType?.includes('video')) return '🎬';
-    if (fileType?.includes('audio')) return '🎵';
+  const getFileIcon = (kind) => {
+    if (kind === 'pdf') return '📕';
+    if (kind === 'word') return '📘';
+    if (kind === 'text') return '📄';
+    if (kind === 'archive') return '🗜️';
+    if (kind === 'video') return '🎬';
+    if (kind === 'audio') return '🎵';
+    if (kind === 'image') return '🖼️';
     return '📎';
   };
 
   const handleDownload = async (file) => {
+    setFileLoadingState(file.id, true);
     try {
-      const response = await fetch(getFileDownloadUrl(file.id));
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.originalName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      const accessInfo = await fetchFileAccessInfo(file.id);
+      if (!accessInfo?.url) {
+        throw new Error('Missing download URL');
+      }
+
+      const link = document.createElement('a');
+      link.href = accessInfo.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.download = file.originalName || accessInfo.originalName || 'download';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (error) {
       console.error('Download failed:', error);
+    } finally {
+      setFileLoadingState(file.id, false);
     }
   };
 
   const openDocPreview = async (file) => {
-    if (isImage(file.fileType)) {
-      try {
-        // Fetch the signed URL from the API
-        const res = await fetch(getFilePreviewUrl(file.id));
-        const data = await res.json();
-        setPreviewImage({ url: data.url, name: file.originalName });
-      } catch (error) {
-        console.error('Failed to load image:', error);
-      }
+    const initialKind = getFileKind(file.originalName, file.fileType);
+    if (!isPreviewableKind(initialKind)) {
       return;
     }
-    setPreviewDoc({ type: 'loading', name: file.originalName });
 
-    if (isPDF(file.fileType)) {
-      try {
-        const res = await fetch(getFilePreviewUrl(file.id));
-        const data = await res.json();
-        setPreviewDoc({ type: 'pdf', url: data.url, name: file.originalName });
-      } catch {
-        setPreviewDoc({ type: 'error', name: file.originalName });
-      }
-      return;
+    setPreviewImage(null);
+    if (initialKind !== 'image') {
+      setPreviewDoc({ type: 'loading', name: file.originalName });
     }
-    if (isTextFile(file.fileType)) {
-      try {
-        const res = await fetch(getFileDownloadUrl(file.id));
-        const text = await res.text();
-        setPreviewDoc({ type: 'text', content: text, name: file.originalName });
-      } catch {
-        setPreviewDoc({ type: 'error', name: file.originalName });
+
+    setFileLoadingState(file.id, true);
+
+    try {
+      const accessInfo = await fetchFileAccessInfo(file.id);
+      if (!accessInfo?.url) {
+        throw new Error('Missing preview URL');
       }
-      return;
-    }
-    if (isWord(file.fileType)) {
-      try {
-        const res = await fetch(getFileDownloadUrl(file.id));
-        const arrayBuffer = await res.arrayBuffer();
+
+      const resolvedName = accessInfo.originalName || file.originalName;
+      const resolvedKind = getFileKind(resolvedName, accessInfo.fileType);
+
+      if (resolvedKind === 'image') {
+        setPreviewDoc(null);
+        setPreviewImage({ url: accessInfo.url, name: resolvedName });
+        return;
+      }
+
+      if (resolvedKind === 'pdf') {
+        setPreviewDoc({ type: 'pdf', url: accessInfo.url, name: resolvedName });
+        return;
+      }
+
+      if (resolvedKind === 'text') {
+        const response = await fetch(accessInfo.url);
+        const textContent = await response.text();
+        setPreviewDoc({ type: 'text', content: textContent, name: resolvedName });
+        return;
+      }
+
+      if (resolvedKind === 'word') {
+        const response = await fetch(accessInfo.url);
+        const arrayBuffer = await response.arrayBuffer();
         const mammoth = (await import('mammoth')).default;
         const result = await mammoth.convertToHtml({ arrayBuffer });
-        setPreviewDoc({ type: 'word', html: result.value, name: file.originalName });
-      } catch {
-        setPreviewDoc({ type: 'error', name: file.originalName });
+        setPreviewDoc({ type: 'word', html: result.value, name: resolvedName });
+        return;
       }
+
+      setPreviewDoc({ type: 'error', name: resolvedName });
+    } catch (error) {
+      console.error('Failed to load preview:', error);
+      setPreviewDoc({ type: 'error', name: file.originalName });
+    } finally {
+      setFileLoadingState(file.id, false);
     }
   };
 
@@ -160,8 +211,8 @@ export default function FileList() {
       await navigator.clipboard.writeText(content);
       setCopiedId(textId);
       setTimeout(() => setCopiedId(null), 2000);
-    } catch (err) {
-      console.error('Failed to copy text:', err);
+    } catch (error) {
+      console.error('Failed to copy text:', error);
     }
   };
 
@@ -187,10 +238,12 @@ export default function FileList() {
 
   // Sort functions
   const applySort = useCallback((arr) => {
+    const getDateValue = (item) => item.uploadedAt ? new Date(item.uploadedAt).getTime() : 0;
+
     return [...arr].sort((a, b) => {
       switch (sortBy) {
-        case 'date-desc': return new Date(b.uploadedAt) - new Date(a.uploadedAt);
-        case 'date-asc':  return new Date(a.uploadedAt) - new Date(b.uploadedAt);
+        case 'date-desc': return getDateValue(b) - getDateValue(a);
+        case 'date-asc':  return getDateValue(a) - getDateValue(b);
         case 'size-desc': return (b.size || 0) - (a.size || 0);
         case 'size-asc':  return (a.size || 0) - (b.size || 0);
         case 'name-asc':  return (a.originalName || '').toLowerCase().localeCompare((b.originalName || '').toLowerCase());
@@ -210,16 +263,44 @@ export default function FileList() {
   }, [sortBy]);
 
   // Grouped & sorted data
-  const grouped = useMemo(() => ({
-    pdf:      applySort(files.filter(f => isPDF(f.fileType))),
-    word:     applySort(files.filter(f => isWord(f.fileType))),
-    textFile: applySort(files.filter(f => isTextFile(f.fileType))),
-    image:    applySort(files.filter(f => isImage(f.fileType))),
-    other:    applySort(files.filter(f =>
-      !isPDF(f.fileType) && !isWord(f.fileType) &&
-      !isTextFile(f.fileType) && !isImage(f.fileType)
-    )),
-  }), [files, applySort]);
+  const grouped = useMemo(() => {
+    const buckets = {
+      pdf: [],
+      word: [],
+      textFile: [],
+      image: [],
+      other: []
+    };
+
+    files.forEach((file) => {
+      const kind = getFileKind(file.originalName, file.fileType);
+      if (kind === 'pdf') {
+        buckets.pdf.push(file);
+        return;
+      }
+      if (kind === 'word') {
+        buckets.word.push(file);
+        return;
+      }
+      if (kind === 'text') {
+        buckets.textFile.push(file);
+        return;
+      }
+      if (kind === 'image') {
+        buckets.image.push(file);
+        return;
+      }
+      buckets.other.push(file);
+    });
+
+    return {
+      pdf: applySort(buckets.pdf),
+      word: applySort(buckets.word),
+      textFile: applySort(buckets.textFile),
+      image: applySort(buckets.image),
+      other: applySort(buckets.other)
+    };
+  }, [files, applySort]);
 
   const sortedTexts = useMemo(() => applySortTexts(texts), [texts, applySortTexts]);
 
@@ -246,64 +327,94 @@ export default function FileList() {
     );
   }
 
-  const renderFileCard = (file) => (
-    <div
-      key={file.id}
-      className="file-card glass-card card-3d"
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-    >
-      <div
-        className={`file-preview ${isImage(file.fileType) ? 'clickable' : isPreviewable(file.fileType) ? 'clickable doc-previewable' : ''}`}
-        onClick={() => isPreviewable(file.fileType) && openDocPreview(file)}
-      >
-        {isImage(file.fileType) ? (
-          <>
-            <ImageThumbnail 
-              fileId={file.id} 
-              alt={file.originalName} 
-              getFilePreviewUrl={getFilePreviewUrl}
-            />
-            <div className="preview-overlay"><span>🔍</span></div>
-          </>
-        ) : (
-          <>
-            <span className="file-preview-icon">{getFileIcon(file.fileType)}</span>
-            {isPreviewable(file.fileType) && (
-              <div className="preview-overlay">
-                <span className="doc-preview-hint">👁 Preview</span>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+  const renderFileCard = (file) => {
+    const fileKind = getFileKind(file.originalName, file.fileType);
+    const isPreviewable = isPreviewableKind(fileKind);
+    const actionLoading = isFileLoading(file.id);
 
-      <div className="file-info">
-        <h4 title={file.originalName}>{file.originalName}</h4>
-        <div className="file-meta">
-          <span>{formatFileSize(file.size)}</span>
-          <span>•</span>
-          <span>{formatDate(file.uploadedAt)}</span>
+    return (
+      <div
+        key={file.id}
+        className="file-card glass-card card-3d"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
+        <div
+          className={`file-preview ${isPreviewable ? 'clickable doc-previewable' : ''} ${actionLoading ? 'loading' : ''}`}
+          onClick={() => isPreviewable && !actionLoading && openDocPreview(file)}
+        >
+          {actionLoading ? (
+            <div className="file-preview-placeholder">
+              <div className="spinner"></div>
+              <span>Loading...</span>
+            </div>
+          ) : (
+            <>
+              <span className="file-preview-icon">{getFileIcon(fileKind)}</span>
+              {isPreviewable && (
+                <div className="preview-overlay">
+                  <span className="doc-preview-hint">👁 Preview</span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="file-info">
+          <h4 title={file.originalName}>{file.originalName}</h4>
+          <div className="file-meta">
+            <span>{formatFileSize(file.size)}</span>
+            {file.uploadedAt && (
+              <>
+                <span>•</span>
+                <span>{formatDate(file.uploadedAt)}</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="file-actions">
+          {isPreviewable && (
+            <StarButton
+              type="button"
+              className="btn-icon preview"
+              title={actionLoading ? 'Loading...' : 'Preview'}
+              onClick={() => openDocPreview(file)}
+              disabled={actionLoading}
+              backgroundColor="#334155"
+              lightColor="#f8fafc"
+            >
+              {actionLoading ? '⏳' : '👁'}
+            </StarButton>
+          )}
+          <StarButton
+            type="button"
+            className="btn-icon download"
+            title={actionLoading ? 'Loading...' : 'Download'}
+            onClick={() => handleDownload(file)}
+            disabled={actionLoading}
+            backgroundColor="#0f766e"
+            lightColor="#ccfbf1"
+          >
+            {actionLoading ? '⏳' : '⬇️'}
+          </StarButton>
+          {role === 'uploader' && (
+            <StarButton
+              type="button"
+              className="btn-icon delete"
+              title="Delete"
+              onClick={() => deleteFile(file.id)}
+              disabled={actionLoading}
+              backgroundColor="#991b1b"
+              lightColor="#fee2e2"
+            >
+              🗑️
+            </StarButton>
+          )}
         </div>
       </div>
-
-      <div className="file-actions">
-        {isPreviewable(file.fileType) && (
-          <button className="btn-icon preview" title="Preview" onClick={() => openDocPreview(file)}>
-            👁
-          </button>
-        )}
-        <button className="btn-icon download" title="Download" onClick={() => handleDownload(file)}>
-          ⬇️
-        </button>
-        {role === 'uploader' && (
-          <button className="btn-icon delete" title="Delete" onClick={() => deleteFile(file.id)}>
-            🗑️
-          </button>
-        )}
-      </div>
-    </div>
-  );
+    );
+  };
 
   const renderTextCard = (text) => (
     <div
@@ -319,17 +430,27 @@ export default function FileList() {
         <span>{formatDate(text.uploadedAt)}</span>
       </div>
       <div className="file-actions">
-        <button
+        <StarButton
+          type="button"
           className="btn-icon copy"
           title={copiedId === text.id ? 'Copied!' : 'Copy text'}
           onClick={() => handleCopyText(text.id, text.content)}
+          backgroundColor="#334155"
+          lightColor="#f8fafc"
         >
           {copiedId === text.id ? '✓' : '📋'}
-        </button>
+        </StarButton>
         {role === 'uploader' && (
-          <button className="btn-icon delete" title="Delete" onClick={() => deleteText(text.id)}>
+          <StarButton
+            type="button"
+            className="btn-icon delete"
+            title="Delete"
+            onClick={() => deleteText(text.id)}
+            backgroundColor="#991b1b"
+            lightColor="#fee2e2"
+          >
             🗑️
-          </button>
+          </StarButton>
         )}
       </div>
     </div>
@@ -365,6 +486,7 @@ export default function FileList() {
         </>
       );
     }
+
     // Filtered view — flat grid, no category header needed
     const MAP = {
       pdf:     { items: grouped.pdf,      render: renderFileCard },
@@ -374,6 +496,7 @@ export default function FileList() {
       other:   { items: grouped.other,    render: renderFileCard },
       snippet: { items: sortedTexts,      render: renderTextCard },
     };
+
     const { items, render } = MAP[filterType] || { items: [], render: renderFileCard };
     return (
       <div className="file-grid filter-grid">
@@ -393,15 +516,18 @@ export default function FileList() {
         {/* Format filter tabs */}
         <div className="format-tabs">
           {formatTabs.map(tab => (
-            <button
+            <StarButton
+              type="button"
               key={tab.key}
               className={`format-tab${filterType === tab.key ? ' active' : ''}`}
+              backgroundColor={filterType === tab.key ? '#0f766e' : '#334155'}
+              lightColor={filterType === tab.key ? '#ccfbf1' : '#f8fafc'}
               onClick={() => setFilterType(tab.key)}
             >
               <span className="format-tab-icon">{tab.icon}</span>
               <span className="format-tab-label">{tab.label}</span>
               <span className="format-tab-count">{tab.count}</span>
-            </button>
+            </StarButton>
           ))}
         </div>
 
@@ -417,25 +543,55 @@ export default function FileList() {
               { key: 'name-asc',  label: 'A → Z' },
               { key: 'name-desc', label: 'Z → A' },
             ].map(opt => (
-              <button
+              <StarButton
+                type="button"
                 key={opt.key}
                 className={`sort-pill${sortBy === opt.key ? ' active' : ''}`}
+                backgroundColor={sortBy === opt.key ? '#7c3aed' : '#334155'}
+                lightColor={sortBy === opt.key ? '#f5f3ff' : '#f8fafc'}
                 onClick={() => setSortBy(opt.key)}
               >
                 {opt.label}
-              </button>
+              </StarButton>
             ))}
           </div>
         </div>
 
         {renderContent()}
+
+        <div className="infinite-status-wrap">
+          {hasMore ? (
+            <div ref={loadMoreRef} className="infinite-status">
+              {loadingMore ? (
+                <>
+                  <div className="spinner"></div>
+                  <span>Loading more content...</span>
+                </>
+              ) : (
+                <span>Scroll down to load more</span>
+              )}
+            </div>
+          ) : (
+            <div className="infinite-status done">
+              <span>All content loaded</span>
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Image Preview Modal */}
       {previewImage && (
         <div className="preview-modal" onClick={closePreview}>
           <div className="preview-modal-content" onClick={e => e.stopPropagation()}>
-            <button className="preview-close" onClick={closePreview}>✕</button>
+            <StarButton
+              type="button"
+              className="preview-close"
+              backgroundColor="#334155"
+              lightColor="#f8fafc"
+              onClick={closePreview}
+            >
+              ✕
+            </StarButton>
             <img src={previewImage.url} alt={previewImage.name} />
             <div className="preview-filename">{previewImage.name}</div>
           </div>
@@ -448,7 +604,15 @@ export default function FileList() {
           <div className="doc-preview-content" onClick={e => e.stopPropagation()}>
             <div className="doc-preview-header">
               <span className="doc-preview-name">{previewDoc.name}</span>
-              <button className="preview-close doc-close-btn" onClick={closePreview}>✕</button>
+              <StarButton
+                type="button"
+                className="preview-close doc-close-btn"
+                backgroundColor="#334155"
+                lightColor="#f8fafc"
+                onClick={closePreview}
+              >
+                ✕
+              </StarButton>
             </div>
             <div className="doc-preview-body">
               {previewDoc.type === 'pdf' && (
@@ -463,7 +627,7 @@ export default function FileList() {
               {previewDoc.type === 'loading' && (
                 <div className="doc-loading">
                   <div className="spinner"></div>
-                  <span>Loading preview…</span>
+                  <span>Loading preview...</span>
                 </div>
               )}
               {previewDoc.type === 'error' && (

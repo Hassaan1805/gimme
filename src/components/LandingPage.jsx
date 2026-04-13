@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useRoom } from '../context/RoomContext';
+import { StarButton } from '@/components/ui/star-button';
 
 export default function LandingPage() {
   const [pin, setPin] = useState('');
@@ -74,35 +75,29 @@ export default function LandingPage() {
           
           {error && <p className="error-message">{error}</p>}
           
-          <button 
-            type="submit" 
-            className="btn btn-primary"
+          <StarButton
+            type="submit"
+            className="w-full"
+            backgroundColor="#7c3aed"
+            lightColor="#f5f3ff"
             disabled={loading || pin.length < 4}
           >
-            {loading ? (
-              <>
-                <span className="spinner" style={{ width: 18, height: 18 }}></span>
-                Checking...
-              </>
-            ) : (
-              <>
-                <span>🚀</span>
-                Join Room
-              </>
-            )}
-          </button>
+            {loading ? 'Checking...' : '🚀 Join Room'}
+          </StarButton>
 
           {showCreate && (
             <div className="create-room-prompt">
               <p>Room <strong>{pin}</strong> doesn't exist yet.</p>
-              <button 
+              <StarButton
                 type="button"
-                className="btn btn-secondary"
+                className="w-full"
+                backgroundColor="#334155"
+                lightColor="#f8fafc"
                 onClick={handleCreate}
                 disabled={loading}
               >
-                ✨ Create New Room
-              </button>
+                {loading ? 'Creating...' : '✨ Create New Room'}
+              </StarButton>
             </div>
           )}
         </form>

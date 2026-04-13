@@ -32,7 +32,115 @@ const upload = multer({
     limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
 });
 
+const roomContentsCache = new Map();
+const ROOM_CACHE_TTL_MS = 15 * 1000;
+
+function getRoomContentsCacheKey(pin, folder, limit, offset) {
+    return `${pin}:${folder || 'all'}:${limit}:${offset}`;
+}
+
+function getCachedRoomContents(pin, folder, limit, offset) {
+    const cacheKey = getRoomContentsCacheKey(pin, folder, limit, offset);
+    const cacheEntry = roomContentsCache.get(cacheKey);
+
+    if (!cacheEntry) {
+        return null;
+    }
+
+    if (Date.now() - cacheEntry.cachedAt > ROOM_CACHE_TTL_MS) {
+        roomContentsCache.delete(cacheKey);
+        return null;
+    }
+
+    return cacheEntry.payload;
+}
+
+function setCachedRoomContents(pin, folder, limit, offset, payload) {
+    const cacheKey = getRoomContentsCacheKey(pin, folder, limit, offset);
+    roomContentsCache.set(cacheKey, {
+        cachedAt: Date.now(),
+        payload
+    });
+}
+
+function invalidateRoomContentsCache(pin) {
+    const prefix = `${pin}:`;
+    for (const cacheKey of roomContentsCache.keys()) {
+        if (cacheKey.startsWith(prefix)) {
+            roomContentsCache.delete(cacheKey);
+        }
+    }
+}
+
+const SYSTEM_ROOM_NAMES_BY_PIN = {
+    guest: 'guest',
+    hassaan: 'hassaan',
+    zaid: 'zaid',
+    '1234': 'guest',
+    '2345': 'hassaan',
+    '3456': 'zaid'
+};
+
+function getSystemRoomName(pin) {
+    return SYSTEM_ROOM_NAMES_BY_PIN[String(pin || '').toLowerCase()] || null;
+}
+
+function normalizeRoomPayload(room) {
+    return {
+        pin: room.pin,
+        name: room.room_name || room.name || getSystemRoomName(room.pin) || String(room.pin),
+        createdAt: room.created_at || null
+    };
+}
+
+function generateRandomPin(length = 6) {
+    const min = 10 ** (length - 1);
+    const max = (10 ** length) - 1;
+    return String(Math.floor(Math.random() * (max - min + 1)) + min);
+}
+
+async function generateUniquePin() {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        const candidatePin = generateRandomPin();
+        const { data: existingRoom, error } = await supabase
+            .from('rooms')
+            .select('pin')
+            .eq('pin', candidatePin)
+            .maybeSingle();
+
+        if (error) {
+            throw error;
+        }
+
+        if (!existingRoom) {
+            return candidatePin;
+        }
+    }
+
+    throw new Error('Failed to generate a unique room pin');
+}
+
 // ============ ROOM ENDPOINTS ============
+
+// List all rooms
+app.get('/api/rooms', async (req, res) => {
+    try {
+        const { data: rooms, error } = await supabase
+            .from('rooms')
+            .select('*')
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            throw error;
+        }
+
+        const normalizedRooms = (rooms || []).map(normalizeRoomPayload);
+        res.json({ rooms: normalizedRooms });
+    } catch (error) {
+        console.error('Error listing rooms:', error);
+        res.status(500).json({ error: 'Failed to list rooms' });
+    }
+});
 
 // Check if room exists
 app.get('/api/rooms/:pin', async (req, res) => {
@@ -57,31 +165,62 @@ app.get('/api/rooms/:pin', async (req, res) => {
 // Create room
 app.post('/api/rooms', async (req, res) => {
     try {
-        const { pin } = req.body;
+        const requestedPin = String(req.body?.pin || '').trim();
+        const roomNameInput = String(req.body?.roomName || '').trim();
 
-        if (!pin || pin.length < 4) {
-            return res.status(400).json({ error: 'PIN must be at least 4 characters' });
+        const pin = requestedPin || await generateUniquePin();
+        const roomName = roomNameInput || getSystemRoomName(pin) || pin;
+
+        if (pin.length < 4 || pin.length > 12) {
+            return res.status(400).json({ error: 'PIN must be between 4 and 12 characters' });
         }
 
         // Check if room already exists
-        const { data: existing } = await supabase
+        const { data: existing, error: existingError } = await supabase
             .from('rooms')
             .select('pin')
             .eq('pin', pin)
-            .single();
+            .maybeSingle();
+
+        if (existingError) {
+            throw existingError;
+        }
 
         if (existing) {
             return res.status(400).json({ error: 'Room already exists' });
         }
 
-        // Create room
-        const { error } = await supabase
+        // Create room with name when available in schema.
+        let createdRoom = null;
+        let createError = null;
+
+        ({ data: createdRoom, error: createError } = await supabase
             .from('rooms')
-            .insert({ pin });
+            .insert({ pin, room_name: roomName })
+            .select('*')
+            .single());
 
-        if (error) throw error;
+        if (createError && String(createError.message || '').toLowerCase().includes('room_name')) {
+            ({ data: createdRoom, error: createError } = await supabase
+                .from('rooms')
+                .insert({ pin })
+                .select('*')
+                .single());
+        }
 
-        res.json({ success: true, pin });
+        if (createError) throw createError;
+
+        if (!createdRoom) {
+            throw new Error('Room creation failed');
+        }
+
+        res.json({
+            success: true,
+            room: {
+                ...normalizeRoomPayload(createdRoom),
+                name: createdRoom.room_name || roomName
+            }
+        });
     } catch (error) {
         console.error('Error creating room:', error);
         res.status(500).json({ error: 'Failed to create room' });
@@ -93,6 +232,16 @@ app.get('/api/rooms/:pin/contents', async (req, res) => {
     try {
         const { pin } = req.params;
         const { folder } = req.query;
+        const parsedLimit = Number.parseInt(req.query.limit, 10);
+        const parsedOffset = Number.parseInt(req.query.offset, 10);
+        const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 20;
+        const offset = Number.isInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
+        const upperBound = offset + limit - 1;
+
+        const cachedContents = getCachedRoomContents(pin, folder, limit, offset);
+        if (cachedContents) {
+            return res.json(cachedContents);
+        }
 
         // Verify room exists
         const { data: room } = await supabase
@@ -105,58 +254,103 @@ app.get('/api/rooms/:pin/contents', async (req, res) => {
             return res.status(404).json({ error: 'Room not found' });
         }
 
-        // Build queries with folder filter if provided
-        let filesQuery = supabase
-            .from('files')
-            .select('*')
-            .eq('room_pin', pin);
-        
-        let textsQuery = supabase
-            .from('texts')
-            .select('*')
-            .eq('room_pin', pin);
-        
-        if (folder) {
+        const applyFolderFilter = (query) => {
+            if (!folder) {
+                return query;
+            }
+
             // For guest folder, include items with NULL folder (backward compatibility)
             if (folder === 'guest') {
-                filesQuery = filesQuery.or('folder.eq.guest,folder.is.null');
-                textsQuery = textsQuery.or('folder.eq.guest,folder.is.null');
-            } else {
-                filesQuery = filesQuery.eq('folder', folder);
-                textsQuery = textsQuery.eq('folder', folder);
+                return query.or('folder.eq.guest,folder.is.null');
             }
-        }
 
-        // Get files
-        const { data: files, error: filesError } = await filesQuery
-            .order('uploaded_at', { ascending: false });
+            return query.eq('folder', folder);
+        };
 
-        if (filesError) throw filesError;
+        const [filesCountResult, textsCountResult, filesResult, textsResult] = await Promise.all([
+            applyFolderFilter(
+                supabase
+                    .from('files')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('room_pin', pin)
+            ),
+            applyFolderFilter(
+                supabase
+                    .from('texts')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('room_pin', pin)
+            ),
+            applyFolderFilter(
+                supabase
+                    .from('files')
+                    .select('id,original_name,size,uploaded_at')
+                    .eq('room_pin', pin)
+            )
+                .order('uploaded_at', { ascending: false })
+                .range(0, upperBound),
+            applyFolderFilter(
+                supabase
+                    .from('texts')
+                    .select('*')
+                    .eq('room_pin', pin)
+            )
+                .order('uploaded_at', { ascending: false })
+                .range(0, upperBound)
+        ]);
 
-        // Get texts
-        const { data: texts, error: textsError } = await textsQuery
-            .order('uploaded_at', { ascending: false });
+        if (filesCountResult.error) throw filesCountResult.error;
+        if (textsCountResult.error) throw textsCountResult.error;
+        if (filesResult.error) throw filesResult.error;
+        if (textsResult.error) throw textsResult.error;
 
-        if (textsError) throw textsError;
+        const files = filesResult.data || [];
+        const texts = textsResult.data || [];
 
-        // Add public URLs to files
-        const filesWithUrls = files.map(file => ({
-            ...file,
-            originalName: file.original_name,
-            fileType: file.file_type,
-            uploadedBy: file.uploaded_by,
-            uploadedAt: file.uploaded_at,
-            folder: file.folder
-        }));
+        // Normalize and merge by uploadedAt so offset/limit apply across all room items.
+        const mergedItems = [
+            ...files.map(file => ({
+                itemType: 'file',
+                sortTimestamp: file.uploaded_at,
+                data: {
+                    id: file.id,
+                    originalName: file.original_name,
+                    size: file.size
+                }
+            })),
+            ...texts.map(text => ({
+                itemType: 'text',
+                sortTimestamp: text.uploaded_at,
+                data: {
+                    ...text,
+                    uploadedBy: text.uploaded_by,
+                    uploadedAt: text.uploaded_at,
+                    folder: text.folder
+                }
+            }))
+        ]
+            .sort((a, b) => new Date(b.sortTimestamp).getTime() - new Date(a.sortTimestamp).getTime())
+            .slice(offset, offset + limit);
 
-        const textsFormatted = texts.map(text => ({
-            ...text,
-            uploadedBy: text.uploaded_by,
-            uploadedAt: text.uploaded_at,
-            folder: text.folder
-        }));
+        const filesWithUrls = mergedItems
+            .filter(item => item.itemType === 'file')
+            .map(item => item.data);
 
-        res.json({ files: filesWithUrls, texts: textsFormatted });
+        const textsFormatted = mergedItems
+            .filter(item => item.itemType === 'text')
+            .map(item => item.data);
+
+        const totalCount = (filesCountResult.count || 0) + (textsCountResult.count || 0);
+
+        const responsePayload = {
+            files: filesWithUrls,
+            texts: textsFormatted,
+            totalCount,
+            limit,
+            offset
+        };
+
+        setCachedRoomContents(pin, folder, limit, offset, responsePayload);
+        res.json(responsePayload);
     } catch (error) {
         console.error('Error getting room contents:', error);
         res.status(500).json({ error: 'Failed to get room contents' });
@@ -169,15 +363,11 @@ app.get('/api/rooms/:pin/contents', async (req, res) => {
 app.post('/api/rooms/:pin/files', upload.single('file'), async (req, res) => {
     try {
         const { pin } = req.params;
-        const { folder } = req.body;
+        const folder = String(req.body?.folder || 'general').trim() || 'general';
         const file = req.file;
 
         if (!file) {
             return res.status(400).json({ error: 'No file uploaded' });
-        }
-
-        if (!folder) {
-            return res.status(400).json({ error: 'Folder is required' });
         }
 
         // Verify room exists
@@ -223,14 +413,12 @@ app.post('/api/rooms/:pin/files', upload.single('file'), async (req, res) => {
 
         if (dbError) throw dbError;
 
+        invalidateRoomContentsCache(pin);
+
         const responseFile = {
             id: fileData.id,
             originalName: fileData.original_name,
-            fileType: fileData.file_type,
             size: fileData.size,
-            uploadedBy: fileData.uploaded_by,
-            uploadedAt: fileData.uploaded_at,
-            storage_path: fileData.storage_path,
             folder: fileData.folder
         };
 
@@ -337,6 +525,8 @@ app.delete('/api/files/:fileId', async (req, res) => {
 
         if (deleteError) throw deleteError;
 
+        invalidateRoomContentsCache(roomPin);
+
         // Emit socket event
         io.to(roomPin).emit('file-deleted', fileId);
 
@@ -353,14 +543,11 @@ app.delete('/api/files/:fileId', async (req, res) => {
 app.post('/api/rooms/:pin/texts', async (req, res) => {
     try {
         const { pin } = req.params;
-        const { content, folder } = req.body;
+        const content = req.body?.content;
+        const folder = String(req.body?.folder || 'general').trim() || 'general';
 
         if (!content || content.trim().length === 0) {
             return res.status(400).json({ error: 'Content is required' });
-        }
-
-        if (!folder) {
-            return res.status(400).json({ error: 'Folder is required' });
         }
 
         // Verify room exists
@@ -395,6 +582,8 @@ app.post('/api/rooms/:pin/texts', async (req, res) => {
             folder: text.folder
         };
 
+        invalidateRoomContentsCache(pin);
+
         io.to(pin).emit('text-added', responseText);
 
         res.json(responseText);
@@ -428,6 +617,8 @@ app.delete('/api/texts/:textId', async (req, res) => {
             .eq('id', textId);
 
         if (error) throw error;
+
+        invalidateRoomContentsCache(roomPin);
 
         io.to(roomPin).emit('text-deleted', textId);
 
