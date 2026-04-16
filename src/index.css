@@ -1216,7 +1216,9 @@ body::after {
 }
 
 .doc-close-btn {
-  position: static;
+  position: relative;
+  top: 0;
+  right: 0;
   flex-shrink: 0;
 }
 
